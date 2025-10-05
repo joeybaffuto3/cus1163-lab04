@@ -1,40 +1,55 @@
+// executor.c — core fork/exec/wait logic for Lab 4
+
 #include "executor.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
-/**
- * Execute a command using the fork-exec-wait pattern
- *
- * This function demonstrates the fundamental process management pattern
- * used by all Unix shells:
- * 1. Fork a child process
- * 2. Child calls exec to transform into the target command
- * 3. Parent waits for child to complete
- *
- * @param command The command to execute (e.g., "ls", "pwd", "echo")
- * @param args Array of arguments: [command, arg1, arg2, ..., NULL]
- *             Example: {"ls", "-l", NULL} or {"echo", "Hello", NULL}
- * @return Exit status of the command (0=success, non-zero=failure, -1=error)
+/*
+ * Returns:
+ *   0..255  : child's exit code
+ *   128+sig : if child terminated by a signal (like shells do)
+ *   -1      : if fork()/waitpid() failed or unusual state
  */
-int execute_command(char *command, char **args) {
-    pid_t pid;
-    int status;
+int execute_command(char *command, char *args[]) {
+    // Guard against empty/NULL input
+    if (command == NULL || args == NULL || args[0] == NULL || args[0][0] == '\0') {
+        return 0; // treat empty input as a no-op
+    }
 
-    // TODO 1: Fork a child process
-    // Use fork() to create a new process
-    // Store the return value in 'pid'
-    // Check if fork failed (pid < 0) and return -1 if so
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork failed");
+        return -1;
+    }
 
-    // TODO 2: Child process - Execute the command
-    // Check if we're in the child process (pid == 0)
-    // Call execvp(command, args) to transform into the target program
-    // If execvp returns, it failed - print error and exit(1)
-    // CRITICAL: Child must call exit(1), NOT return!
+    if (pid == 0) {
+        // --- CHILD ---
+        execvp(command, args);
 
+        // If we get here, exec failed
+        perror("execvp");
+        _exit(127); // conventional "command not found / exec failed"
+    }
 
-    // TODO 3: Parent process - Wait for child to complete
-    // Use waitpid(pid, &status, 0) to wait for the specific child
-    // Check if child exited normally with WIFEXITED(status)
-    // If yes, return the exit code with WEXITSTATUS(status)
-    // Otherwise return -1
+    // --- PARENT ---
+    int status = 0;
+    pid_t w = waitpid(pid, &status, 0);
+    if (w == -1) {
+        perror("waitpid failed");
+        return -1;
+    }
 
-    return -1;  // This line should be replaced by your TODO 3 code
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+        return 128 + WTERMSIG(status);
+    }
+
+    // Stopped/continued/other unusual state
+    return -1;
 }
+
